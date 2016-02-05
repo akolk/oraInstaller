@@ -30,9 +30,9 @@ oraInstaller.lees       = oraInstaller.appl + '_LEES';
 oraInstaller.adm        = oraInstaller.appl + '_ADM';
 oraInstaller.mut        = oraInstaller.appl + '_MUT';
 oraInstaller.update_prefix = oraInstaller.appl + '_update';
-oraInstaller.install_dir = oraInstaller.appl_home + '/install'; 
+oraInstaller.install_dir   = oraInstaller.appl_home + '/install'; 
 oraInstaller.scriptexecown = null;
-oraInstaller.fullowner = null;
+oraInstaller.fullowner     = null;
 oraInstaller.toetsomgeving = null;
 
 oraInstaller.Debug=function(line)
@@ -43,7 +43,9 @@ oraInstaller.Debug=function(line)
   }
 }
 
-
+// The original installer was a shell script and running on unix.
+// In the install and update files are Environment variables being used
+// In this script we replace the most common ones.
 oraInstaller.replacevars=function(line)
 {
    var res;
@@ -103,6 +105,9 @@ oraInstaller.bepaalowner=function(appl)
    return owner;
 }
 
+// Every standard schema has a version table. In that table there is at least one row.
+// We expect a version number of 0.0.0.0 or 0.0.0.0-SNAPSHOT (in ONT or INT allowed).
+// 
 oraInstaller.checkversion=function(appl)
 {
     var binds     = {}; 
@@ -121,19 +126,30 @@ oraInstaller.checkversion=function(appl)
     return version;
 }
 
+// Alter the owner and enable connect through proxy for that user.
+// Returns TRUE if al went fine and FALSE if there was an error.
 oraInstaller.set_proxy=function(dbaas, owner, lees, adm, mut)
 {
     var ret;
-    ret = oraInstaller.sysutil.execute('alter user ' + owner + ' account unlock');
-    ret = oraInstaller.sysutil.execute('alter user ' + owner + ' grant connect through ' + dbaas);
-    ret = oraInstaller.sysutil.execute('alter user ' + mut + ' grant connect through ' + dbaas);
-    ret = oraInstaller.sysutil.execute('alter user ' + lees + ' grant connect through ' + dbaas);
-    ret = oraInstaller.sysutil.execute('grant create any synonym to ' + owner); 
-    ret = oraInstaller.sysutil.execute('grant drop any synonym to ' + owner); 
-    ret = oraInstaller.sysutil.execute('grant create public synonym to ' + owner); 
-    ret = oraInstaller.sysutil.execute('grant resumable to ' + owner);
+    try {
+       ret = oraInstaller.sysutil.execute('alter user ' + owner + ' account unlock');
+       ret = oraInstaller.sysutil.execute('alter user ' + owner + ' grant connect through ' + dbaas);
+       ret = oraInstaller.sysutil.execute('alter user ' + mut + ' grant connect through ' + dbaas);
+       ret = oraInstaller.sysutil.execute('alter user ' + lees + ' grant connect through ' + dbaas);
+       ret = oraInstaller.sysutil.execute('grant create any synonym to ' + owner); 
+       ret = oraInstaller.sysutil.execute('grant drop any synonym to ' + owner); 
+       ret = oraInstaller.sysutil.execute('grant create public synonym to ' + owner); 
+       ret = oraInstaller.sysutil.execute('grant resumable to ' + owner);
+    } catch(e)
+    {
+       oraInstaller.Debug('set_proxy: '+ e);
+       return false;
+    }
+    return true;
 }
 
+// Check if an object exists and what the status is
+// Returns VALID, INVALID, ERROR
 oraInstaller.check_object=function(owner, name, type)
 {
     var sql     = 'select status from dba_objects where owner = upper(:owner) and  object_name = upper(:name) and object_type = upper(:type)'; 
@@ -142,7 +158,13 @@ oraInstaller.check_object=function(owner, name, type)
 	binds.name = name;
 	binds.type = type;
     var status = 'N/A';
+    try {
         status = oraInstaller.sysutil.executeReturnOneCol(sql, binds);
+    } catch(e)
+    {
+    	oraInstaller.Debug('check_object: '+e);
+    	return 'ERROR';
+    }
     oraInstaller.Debug('Check '+owner+'.'+name+' type='+type+' status='+status);
     return status;
 }
@@ -157,6 +179,11 @@ oraInstaller.check_locked=function(username)
 	return status;
 }
 
+// Here we check a couple of versions. Each update file has a version attached 
+// we compare that to the version in in the database (version table in schema)
+// and to the version of the kit (kitversion).
+// fileversion needs to be:  fileversion >= dbversion and dbversion <= kitversion
+//
 oraInstaller.checkupdateversie=function(fileversion, dbversion,kitversion )
 {
     if (oraInstaller.compare(fileversion, dbversion) >= 0 && oraInstaller.compare(dbversion, kitversion) <= 0)
@@ -169,6 +196,7 @@ oraInstaller.checkupdateversie=function(fileversion, dbversion,kitversion )
     }
 }
 
+// Here we compare two version numbers of the format: 0.0.0.0 or 0.0.0 or 0.0
 oraInstaller.compare=function(a,b)
 {
     if (a === b) {
@@ -262,7 +290,7 @@ try {
 catch (e)
 {
    oraInstaller.Debug('\nError during proxy connect: ' + e + '\n');
-   // We should leave the install
+   // We should leave the install, rollback some changes and tell the user what happened.
 }
    
 oraInstaller.versie=oraInstaller.checkversion(oraInstaller.appl);
@@ -271,38 +299,71 @@ oraInstaller.Debug('Versie: ' + oraInstaller.versie + '\n');
 oraInstaller.readkitversie();
 oraInstaller.Debug('Kit Versie: '+ oraInstaller.versiekit + '\n');
 
-
-// check if install_dir is a directory 
+// check if install_dir is a directory, and if so read all the files there and 
 if (java.nio.file.Files.isDirectory(java.nio.file.FileSystems.getDefault().getPath(oraInstaller.install_dir)))
 {
     oraInstaller.Debug('Dit is een directory: '+ oraInstaller.install_dir + '\n');
-	
-	var imports = new JavaImporter(java.nio.file);
-	with (imports)
-	{
-	   // var Path       = Java.type("java.nio.file.Path");
-           // var files      = new Path();
-	   var files = {};
-           oraInstaller.install_files = new java.io.File(oraInstaller.install_dir).list();
+    var imports = new JavaImporter(java.nio.file);
+    with (imports)
+    {
+	var files = {};
+        oraInstaller.install_files = new java.io.File(oraInstaller.install_dir).list();
 	   
-	   for (i=0; i < oraInstaller.install_files.length; i++)
-           {
-               ctx.write(oraInstaller.install_files[i] + '\n');
-           }
-	}
+	for (i=0; i < oraInstaller.install_files.length; i++)
+        {
+            oraInstaller.Debug(oraInstaller.install_files[i] + '\n');
+        }
+    }
 }
 else
 {
 
 }
+// These are set for testing purposes only at the moment.
 oraInstaller.versie = '0.0.0.0';
 oraInstaller.versiekit = '0.1.0.19';
 if (oraInstaller.versie == null)
 {
    // Hier doen we een nieuwe install
    // Daarna zetten we de oraInstaller.versie op '0.0.0.0' zodat de update scripts wel gedraaid gaan worden
-   ctx.write('Ga uitvoeren: \n');
+   oraInstaller.Debug('Ga uitvoeren: \n');
    oraInstaller.versie = '0.0.0.0';
+   var lines = {} ;
+   
+  // java.nio.file.Files.isFile() check if the file exists if not we have a problem.
+  // We should probably move these checks to the beginning of the install so that we 
+  // don't do all this work and then we have to revert everything because one file is missing.
+  // others files that should be there are: versie.txt, db/appl_versie.sql, install/XXX_install
+  
+   var path = java.nio.file.FileSystems.getDefault().getPath(oraInstaller.install_dir + '/' + oraInstaller.appl + '_install');
+   lines = java.nio.file.Files.readAllLines(path);
+   for (l=0; l < lines.length; l++)
+   {
+        if (lines[l].startsWith('#'))  // Skip comments in the file
+        {
+	   continue;
+	}
+	var cmds = lines[l].split(' "');
+        oraInstall.Debug('Uitvoeren: '+ cmds[1] +'\n');
+			  
+	var cmd = oraInstaller.replacevars(cmds[1]);
+	cmd = java.nio.file.FileSystems.getDefault().getPath(cmd);
+	oraInstall.Debug('Uitvoeren: '+ cmd);
+	oraInstaller.scriptexecown.setStmt('WHENEVER SQLERROR EXIT');
+	oraInstaller.scriptexecown.run();	
+	oraInstaller.scriptexecown.setStmt('@' + cmd);
+	oraInstaller.scriptexecown.run();
+			  
+	var ctx1 = oraInstaller.scriptexecown.getScriptRunnerContext();
+	if (ctx1.getProperty("sqldev.error"))
+        {
+           ctx.write('ERROR:  TRUE\n');
+        }
+        else
+	{
+           ctx.write('ERROR:  FALSE\n');			  
+	}
+    }
 }
 // Nu gaan we de update scripts uitrollen
 // We gaan door alle scripts 
@@ -328,6 +389,11 @@ for (i=0; i <oraInstaller.install_files.length; i++)
 			  {
 			     continue;
 			  }
+
+  var parseline = /(\w)"()" "()" ()/;
+  var match = parseline.exec(lines[l]);
+  
+}
 		      var cmds = lines[l].split(' "');
 			  ctx.write('Uitvoeren: '+ cmds[1] +'\n');
 			  
