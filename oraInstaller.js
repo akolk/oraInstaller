@@ -343,12 +343,14 @@ if (oraInstaller.versie == null)
         {
 	   continue;
 	}
-	var cmds = lines[l].split(' "');
-        oraInstall.Debug('Uitvoeren: '+ cmds[1] +'\n');
+	
+	var parseline = /^(\S*).*\"(.*)\".*\"(.*)\"(.*)$/;
+        var cmds = parseline.exec(lines[l]);
+        oraInstaller.Debug('Uitvoeren: '+ cmds[2] +'\n');
 			  
 	var cmd = oraInstaller.replacevars(cmds[1]);
 	cmd = java.nio.file.FileSystems.getDefault().getPath(cmd);
-	oraInstall.Debug('Uitvoeren: '+ cmd);
+	oraInstaller.Debug('Uitvoeren: '+ cmd);
 	oraInstaller.scriptexecown.setStmt('WHENEVER SQLERROR EXIT');
 	oraInstaller.scriptexecown.run();	
 	oraInstaller.scriptexecown.setStmt('@' + cmd);
@@ -372,51 +374,52 @@ for (i=0; i <oraInstaller.install_files.length; i++)
     ctx.write('Check: ' + oraInstaller.install_files[i] + '\n');
     if (oraInstaller.install_files[i].startsWith(oraInstaller.update_prefix))
     {
-	   // We hebben een update script gevonden, maar moet dat uitgevoerd worden?
-	   // Haal het versie nummer van de script naam en ga dan vergelijken.
-	   var file_attr = oraInstaller.install_files[i].split('_');
-	   if (oraInstaller.checkupdateversie(file_attr[2], oraInstaller.versie, oraInstaller.versiekit))
-	   {
-	      // Dit gaat nu geinstalleerd worden.
-		  // Lees de file in en ga dan elke regel af omdat script uit te voeren
-		  ctx.write('Ga uitvoeren: ' + oraInstaller.install_files[i] + '\n');
-          var lines = {} ;
-          var path = java.nio.file.FileSystems.getDefault().getPath(oraInstaller.install_dir + '/' + oraInstaller.install_files[i])
-          lines = java.nio.file.Files.readAllLines(path);
-          for (l=0; l < lines.length; l++)
-		  {
-		      if (lines[l].startsWith('#'))
-			  {
-			     continue;
-			  }
-
-  var parseline = /(\w)"()" "()" ()/;
-  var match = parseline.exec(lines[l]);
+        // We hebben een update script gevonden, maar moet dat uitgevoerd worden?
+	// Haal het versie nummer van de script naam en ga dan vergelijken.
+	var file_attr = oraInstaller.install_files[i].split('_');
+        if (oraInstaller.checkupdateversie(file_attr[2], oraInstaller.versie, oraInstaller.versiekit))
+	{
+	   // Dit gaat nu geinstalleerd worden.
+           // Lees de file in en ga dan elke regel af omdat script uit te voeren
+           oraInstaller.Debug('Ga uitvoeren: ' + oraInstaller.install_files[i] + '\n');
+           var lines = {} ;
+           var path = java.nio.file.FileSystems.getDefault().getPath(oraInstaller.install_dir + '/' + oraInstaller.install_files[i])
+           lines = java.nio.file.Files.readAllLines(path);
+           for (l=0; l < lines.length; l++)
+           {
+	       if (lines[l].startsWith('#'))
+		{
+		   continue;
+		}
+                //^(\S*) - - \[(.*) .....\] \"....? (\S*) .*\" (\d*) ([-0-9]*) (\"([^"]+)\")?
+                //host - - [date] "GET URL HTTP/1.1" status size "ref" "agent"
+                var parseline = /^(\S*).*\"(.*)\".*\"(.*)\"(.*)$/;
   
-}
-		      var cmds = lines[l].split(' "');
-			  ctx.write('Uitvoeren: '+ cmds[1] +'\n');
+                var cmds = parseline.exec(lines[l]);
+  
+
+		oraInstaller.Debug('Uitvoeren: '+ cmds[2] +'\n');
 			  
-			  var cmd = oraInstaller.replacevars(cmds[1]);
-			  cmd = java.nio.file.FileSystems.getDefault().getPath(cmd);
-			  ctx.write('Uitvoeren: '+ cmd);
-			  oraInstaller.scriptexecown.setStmt('WHENEVER SQLERROR EXIT');
-			  oraInstaller.scriptexecown.run();	
-			  oraInstaller.scriptexecown.setStmt('@' + cmd);
-			  oraInstaller.scriptexecown.run();
+		var cmd = oraInstaller.replacevars(cmds[1]);
+		cmd = java.nio.file.FileSystems.getDefault().getPath(cmd);
+		oraInstaller.Debug('Uitvoeren: '+ cmd);
+		oraInstaller.scriptexecown.setStmt('WHENEVER SQLERROR EXIT');
+		oraInstaller.scriptexecown.run();	
+		oraInstaller.scriptexecown.setStmt('@' + cmd);
+		oraInstaller.scriptexecown.run();
 			  
-			  var ctx1 = oraInstaller.scriptexecown.getScriptRunnerContext();
-			  if (ctx1.getProperty("sqldev.error"))
-              {
-                 ctx.write('ERROR:  TRUE\n');
-			  }
-			  else
-			  {
-                 ctx.write('ERROR:  FALSE\n');			  
-			  }
-		  }
-	   }	   
-	}
+		var ctx1 = oraInstaller.scriptexecown.getScriptRunnerContext();
+		if (ctx1.getProperty("sqldev.error"))
+                {
+                   oraInstaller.Debug('ERROR:  TRUE\n');
+		}
+		else
+		{
+                   oraInstaller.Debug('ERROR:  FALSE\n');			  
+		}
+	   }
+	}	   
+    }
 }
 
 
