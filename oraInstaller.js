@@ -1,14 +1,8 @@
-/*rem vervanging van orainstaller door sqlcl met javascript:
-
-rem 1) we houden het shell script met de argumenten
-rem 2) daarna roepen we het sqcl aan met de directory waar de scripts staan
-rem 3) 
-rem 4) Bepaal de of applicatie in de database staat
+/*
+** oraInstaller - Install oracle kits in a certain format in a DevOps environment.
+**                The kit format is depending on a DBAAS Toolkit that creates schemas in a standard way, so most if not all
+**                schema, roles, creation ddl is needed in this kit, just the plain DDL to create tables, indexes, sequences, etc.
 */
-
-//ctx.write(Object.getOwnPropertyNames(sqlcl)+'\n');
-
-//show_all_methods(sqlcl);
 
 ctx.write('Begin script\n');
 var oraInstaller = {};
@@ -27,7 +21,7 @@ oraInstaller.versie = '';
 oraInstaller.kitversie = '';
 oraInstaller.syscon = conn;
 oraInstaller.sysutil = util;
-oraInstaller.installuser = 'dbaas';
+oraInstaller.installuser = 'dbaas';   // Probably should do a select user from dual, to find our current user
 oraInstaller.installpwd = args[1];  // Komt als parameter mee
 oraInstaller.appl       = args[2].toUpperCase();  // 
 oraInstaller.appl_home  = args[3];  // 
