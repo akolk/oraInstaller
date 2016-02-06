@@ -4,36 +4,35 @@
 **                schema, roles, creation ddl is needed in this kit, just the plain DDL to create tables, indexes, sequences, etc.
 */
 
-ctx.write('Begin script\n');
-var oraInstaller = {};
-oraInstaller.debug_enabled = true;
-oraInstaller.Properties = Java.type("java.util.Properties");
-oraInstaller.properties = new Properties();
+ctx.write('Starting Oracle Installer ....\n');
+var oraInstaller              = {};
+oraInstaller.debug_enabled    = true;
+oraInstaller.Properties       = Java.type("java.util.Properties");
+oraInstaller.properties       = new Properties();
 oraInstaller.OracleConnection = Java.type("oracle.jdbc.OracleConnection");
-oraInstaller.DBUtil  = Java.type("oracle.dbtools.db.DBUtil");
-oraInstaller.ScriptExecutor  = Java.type("oracle.dbtools.raptor.newscriptrunner.ScriptExecutor");
+oraInstaller.DBUtil           = Java.type("oracle.dbtools.db.DBUtil");
+oraInstaller.ScriptExecutor   = Java.type("oracle.dbtools.raptor.newscriptrunner.ScriptExecutor");
+oraInstaller.DriverManager    = Java.type("java.sql.DriverManager");
 
-oraInstaller.DriverManager = Java.type("java.sql.DriverManager");
-ctx.write('Begin init\n');
-oraInstaller.install = null;   // Dit is de versie in de database die is leeg bij een fresh install en de versie bevat
-oraInstaller.owner = '';
-oraInstaller.versie = '';
-oraInstaller.kitversie = '';
-oraInstaller.syscon = conn;
-oraInstaller.sysutil = util;
-oraInstaller.installuser = 'dbaas';   // Probably should do a select user from dual, to find our current user
-oraInstaller.installpwd = args[1];  // Komt als parameter mee
-oraInstaller.appl       = args[2].toUpperCase();  // 
-oraInstaller.appl_home  = args[3];  // 
-oraInstaller.scriptfile = oraInstaller.appl_home + '/install/' + oraInstaller.appl + '_install';
-oraInstaller.lees       = oraInstaller.appl + '_LEES';
-oraInstaller.adm        = oraInstaller.appl + '_ADM';
-oraInstaller.mut        = oraInstaller.appl + '_MUT';
-oraInstaller.update_prefix = oraInstaller.appl + '_update';
-oraInstaller.install_dir   = oraInstaller.appl_home + '/install'; 
-oraInstaller.scriptexecown = null;
-oraInstaller.fullowner     = null;
-oraInstaller.toetsomgeving = null;
+oraInstaller.install          = null;   // This will contain the version of the schema currently in the database
+oraInstaller.owner            = '';
+oraInstaller.versie           = '';
+oraInstaller.kitversie        = '';
+oraInstaller.syscon           = conn;
+oraInstaller.sysutil          = util;
+oraInstaller.installuser      = 'dbaas';   // Probably should do a select user from dual, to find our current user
+oraInstaller.installpwd       = args[1];  // Komt als parameter mee
+oraInstaller.appl             = args[2].toUpperCase();  // 
+oraInstaller.appl_home        = args[3];  // 
+oraInstaller.scriptfile       = oraInstaller.appl_home + '/install/' + oraInstaller.appl + '_install';
+oraInstaller.lees             = oraInstaller.appl + '_LEES';
+oraInstaller.adm              = oraInstaller.appl + '_ADM';
+oraInstaller.mut              = oraInstaller.appl + '_MUT';
+oraInstaller.update_prefix    = oraInstaller.appl + '_update';
+oraInstaller.install_dir      = oraInstaller.appl_home + '/install'; 
+oraInstaller.scriptexecown    = null;
+oraInstaller.fullowner        = null;
+oraInstaller.toetsomgeving    = null;
 
 oraInstaller.Debug=function(line)
 {
@@ -65,8 +64,8 @@ oraInstaller.replacevars=function(line)
    
    // The following lines are needed to strip the unwanted " from the file
    // Need to better parse the file, so we can ignore this.
-   res = res.substr(0, res.length - 1);
-   res = res.substr(1, res.length);
+   // res = res.substr(0, res.length - 1);
+   // res = res.substr(1, res.length);
    
    oraInstaller.Debug('AFTER : ' + res + '\n');
    return res;
@@ -76,7 +75,7 @@ oraInstaller.replacevars=function(line)
 // The schema name is always like this: KRSO_OWN or AT1KRSO_OWN, the O means development ("ontwikkeling")
 // The expected letters: O, I, A and P
 // Need to figure out the difference between the schema not there or the letter not being there.
-oraInstaller.bepaalomgeving=function(username)
+oraInstaller.findenv=function(username)
 {
    var binds   = { }; 
        binds.username = username;
@@ -93,7 +92,7 @@ oraInstaller.bepaalomgeving=function(username)
 // Applications / Schemas in the database are build from a three letter abbrevation like KRS. These three lettes get extended 
 // into KRSO_OWN. So depending on the environment we get different owners returned.
 // The caller needs to make sure that the NULL value is checked for.
-oraInstaller.bepaalowner=function(appl)
+oraInstaller.findowner=function(appl)
 {
    var binds   = { }; 
        binds.username = appl + '%';
@@ -172,11 +171,11 @@ oraInstaller.check_object=function(owner, name, type)
 // If the owner account is locked (like in production) we need to lock it again after we done or incase of an error
 oraInstaller.check_locked=function(username)
 {
-	var sql     = 'select account_status from dba_users where username = upper(:username)';
-	var binds   = { }; 
-	    binds.username = username;
-	var status = oraInstaller.sysutil.executeReturnOneCol(sql, binds);
-	return status;
+   var sql     = 'select account_status from dba_users where username = upper(:username)';
+   var binds   = { }; 
+       binds.username = username;
+   var status = oraInstaller.sysutil.executeReturnOneCol(sql, binds);
+   return status;
 }
 
 // Here we check a couple of versions. Each update file has a version attached 
@@ -202,7 +201,9 @@ oraInstaller.compare=function(a,b)
     if (a === b) {
        return 0;
     }
-	
+    
+    // TODO: may be this should also be the other way around.
+    // TODO: probably write some tests to figure out what we need
     if (a.length != b.length)
     {
 	if (b.startsWith(a))
@@ -257,6 +258,38 @@ oraInstaller.readkitversie=function()
     }
     oraInstaller.versiekit = lines[0];
 }
+oraInstaller.loadsynonyms=function()
+{
+    // There should be a file in appl_home + '/' + appl + '_synoniemen'
+    // The format of the file is: object:user:newname, where new name is optional
+    // We only deal with private synoniemen
+    var file = oraInstaller.install_dir + '/' + oraInstaller.appl + '_synoniemen';
+    if (java.nio.file.Files.isFile(java.nio.file.FileSystems.getDefault().getPath(file)))
+    {
+    	// Now we can load the file
+    	var lines = java.nio.file.Files.readAllLines(file);
+    	for (i=0; i < lines.length; i++)
+    	{
+    	    if (lines.startWith('#'))
+    	    {
+    	    	// Skip the comments
+    	    	continue;
+    	    }
+    	    var binds = {};
+    	    var cols = lines[i].split(':');
+    	    status = oraInstaller.ownutil.execute('insert into appl_synoniemen values (:object, :owner, :newname)', binds);
+    	    
+    	    // Commit?
+    	}
+    	else 
+    	{
+    	   // The file should be there, if not we should signal an error
+    	   // Better to check this first before we start the install/update
+    		
+    	}
+    }	
+}
+
 
 oraInstaller.Debug('Begin aanroep functies\n');
 oraInstaller.omgeving = oraInstaller.bepaalomgeving(oraInstaller.appl);
@@ -278,7 +311,6 @@ oraInstaller.Debug('url = '+ oraInstaller.url + '\n');
 // First we grant some priviliges to the owner so we can connect with a proxy.
 try {
    oraInstaller.set_proxy(oraInstaller.installuser, oraInstaller.owner, oraInstaller.lees, oraInstaller.adm, oraInstaller.mut);
-
    oraInstaller.properties.put("PROXY_USER_NAME", oraInstaller.owner);  
    oraInstaller.owncon = oraInstaller.DriverManager.getConnection(oraInstaller.url, oraInstaller.installuser, oraInstaller.installpwd);
    oraInstaller.owncon.openProxySession(OracleConnection.PROXYTYPE_USER_NAME, oraInstaller.properties);
@@ -294,7 +326,6 @@ catch (e)
 }
    
 oraInstaller.versie=oraInstaller.checkversion(oraInstaller.appl);
-
 oraInstaller.Debug('Versie: ' + oraInstaller.versie + '\n');
 oraInstaller.readkitversie();
 oraInstaller.Debug('Kit Versie: '+ oraInstaller.versiekit + '\n');
@@ -389,15 +420,13 @@ for (i=0; i <oraInstaller.install_files.length; i++)
            {
 	       if (lines[l].startsWith('#'))
 		{
+		   // Skip the comments in the file
 		   continue;
 		}
                 //^(\S*) - - \[(.*) .....\] \"....? (\S*) .*\" (\d*) ([-0-9]*) (\"([^"]+)\")?
                 //host - - [date] "GET URL HTTP/1.1" status size "ref" "agent"
                 var parseline = /^(\S*).*\"(.*)\".*\"(.*)\"(.*)$/;
-  
                 var cmds = parseline.exec(lines[l]);
-  
-
 		oraInstaller.Debug('Uitvoeren: '+ cmds[2] +'\n');
 			  
 		var cmd = oraInstaller.replacevars(cmds[1]);
